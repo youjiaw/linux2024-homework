@@ -4,71 +4,79 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "list.h"
+
 typedef struct __node {
-    struct __node *left, *right;
-    struct __node *next;
+    struct list_head list;
     long value;
 } node_t;
 
-void list_add(node_t **list, node_t *node_t)
+struct list_head *list_new()
 {
-    node_t->next = *list;
-    *list = node_t;
+    struct list_head *new_head = malloc(sizeof(struct list_head));
+    if (!new_head)
+        return NULL;
+    INIT_LIST_HEAD(new_head);
+    return new_head;
 }
 
-node_t *list_tail(node_t **left)
-{
-    while ((*left) && (*left)->next)
-        left = &((*left)->next);
-    return *left;
-}
-
-int list_length(node_t **left)
+int list_length(struct list_head **head)
 {
     int n = 0;
-    while (*left) {
+    struct list_head *tmp;
+    list_for_each(tmp, *head)
         ++n;
-        left = &((*left)->next);
-    }
     return n;
 }
 
-node_t *list_construct(node_t *list, int n)
+void list_construct(struct list_head *head, long value)
 {
-    node_t *node = malloc(sizeof(node_t));
-    node->next = list;
-    node->value = n;
-    return node;
+    if (!head)
+        return;
+    node_t *new_node = malloc(sizeof(node_t));
+    if (!new_node)
+        return;
+    INIT_LIST_HEAD(&new_node->list);
+    new_node->value = value;
+    list_add(&new_node->list, head);
 }
 
-void list_free(node_t **list)
+void list_free(struct list_head *head)
 {
-    node_t *node = (*list)->next;
-    while (*list) {
-        free(*list);
-        *list = node;
-        if (node)
-            node = node->next;
-    }
+    if (!head)
+        return;
+    node_t *entry, *safe;
+    list_for_each_entry_safe(entry, safe, head, list)
+        free(entry);
+    free(head);
 }
 
 /* Verify if list is order */
-static bool list_is_ordered(node_t *list)
+static bool list_is_ordered(struct list_head *head)
 {       
     bool first = true;
-    int value;
-    while (list) {
+    long value;
+    node_t *entry;
+    list_for_each_entry(entry, head, list) {
         if (first) {
-            value = list->value;
+            value = entry->value;
             first = false;
         } else {
-            if (list->value < value)
+            if (entry->value < value)
                 return false;
-            value = list->value;
+            value = entry->value;
         }
-        list = list->next;
     }
     return true;
+}
+
+// print the list
+void print_list(struct list_head *head)
+{
+    node_t *entry;
+    list_for_each_entry(entry, head, list)
+        printf("%ld ", entry->value);
+    printf("\n");
 }
 
 /* shuffle array, only work if n < RAND_MAX */
@@ -85,70 +93,73 @@ void shuffle(int *array, size_t n)
     }
 }
 
-void quick_sort(node_t **list)
+void quick_sort(struct list_head **head)
 {
-    int n = list_length(list);
+    int n = list_length(head);
     int value;
     int i = 0;
     int max_level = 2 * n;
-    node_t *begin[max_level], *end[max_level];
-    node_t *result = NULL, *left = NULL, *right = NULL;
+    struct list_head *begin[max_level]; //list_new() will return a pointer to struct list_head, so the type should be changed
+    struct list_head *result = list_new(), *left = list_new(), *right = list_new();
     
-    begin[0] = *list;
-    end[0] = list_tail(list);
-            
+    for (int j = 1; j < max_level; j++)
+        begin[j] = list_new();
+    begin[0] = *head;
+    
     while (i >= 0) {
-        node_t *L = begin[i], *R = end[i];
+        struct list_head *L = begin[i]->next, *R = begin[i]->prev;
+
         if (L != R) {
-            node_t *pivot = L;
-            value = pivot->value;
-            node_t *p = pivot->next;
-            pivot->next = NULL;
+            struct list_head *pivot = L;
+            value = list_entry(pivot, node_t, list)->value;
+            list_del(pivot);
     
-            while (p) {
-                node_t *n = p;
-                p = p->next;
-                list_add(n->value > value ? &right : &left, n);
+            node_t *entry, *safe;
+            list_for_each_entry_safe(entry, safe, begin[i], list) {
+                list_del(&entry->list);
+                list_add(&entry->list, entry->value > value ? right : left);
             }
 
-            begin[i] = left;
-            end[i] = list_tail(&left);
-            begin[i + 1] = pivot;
-            end[i + 1] = pivot;
-            begin[i + 2] = right;
-            end[i + 2] = list_tail(&right);
+            list_splice_init(left, begin[i]);
+            list_add(pivot, begin[i + 1]);
+            list_splice_init(right, begin[i + 2]);
 
-            left = right = NULL;
             i += 2;
         } else {
-            if (L)
-                list_add(&result, L);
+            if (list_is_singular(begin[i]))
+                list_splice_init(begin[i], result);
             i--;
         }
     }
-    *list = result;
+    *head = result;
 }
 
 int main(int argc, char **argv)
 {
-    node_t *list = NULL;
+    struct list_head *list = list_new();
 
     size_t count = 100000;
 
     int *test_arr = malloc(sizeof(int) * count);
 
-    for (int i = 0; i < count; ++i)
-        test_arr[i] = i;
-    shuffle(test_arr, count);
+    if (test_arr != NULL) {
+        for (int i = 0; i < count; ++i)
+            test_arr[i] = i;
+        shuffle(test_arr, count);
 
-    while (count--)
-        list = list_construct(list, test_arr[count]);
+        while (count--)
+            list_construct(list, test_arr[count]);
 
-    quick_sort(&list);
-    assert(list_is_ordered(list));
+        if (list == NULL) {
+            fprintf(stderr, "Memory allocation failed\n");
+            return 1;
+        }
+        
+        quick_sort(&list);
+        assert(list_is_ordered(list));
 
-    list_free(&list);
-
+        list_free(list);
+    }
     free(test_arr);
 
     return 0;
